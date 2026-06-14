@@ -428,6 +428,7 @@ export default function App() {
   const [view,setView]=useState("list");
   const [filter,setFilter]=useState("all");
   const [catFilter,setCatFilter]=useState("all");
+  const [customCatFilter,setCustomCatFilter]=useState("all");
   const [tagFilter,setTagFilter]=useState(null);
   const [sortBy,setSortBy]=useState("priority");
   const [notifPerm,setNotifPerm]=useState("default");
@@ -502,7 +503,7 @@ export default function App() {
 
   const allTags=[...new Set(tasks.flatMap(t=>t.tags||[]))];
   const sortFn=(a,b)=>{ if(a.done!==b.done)return a.done?1:-1; if(sortBy==="priority")return PO[a.priority]-PO[b.priority]; if(sortBy==="added_desc")return new Date(b.createdAt)-new Date(a.createdAt); if(sortBy==="added_asc")return new Date(a.createdAt)-new Date(b.createdAt); if(sortBy==="due_asc"){if(!a.due&&!b.due)return 0;if(!a.due)return 1;if(!b.due)return -1;return new Date(a.due)-new Date(b.due);} if(sortBy==="alpha")return a.title.localeCompare(b.title); return 0; };
-  const visible=tasks.filter(t=>{ if(filter==="active"&&t.done)return false; if(filter==="done"&&!t.done)return false; if(catFilter!=="all"&&t.cat!==catFilter)return false; if(tagFilter&&!(t.tags||[]).includes(tagFilter))return false; return true; }).sort(sortFn);
+  const visible=tasks.filter(t=>{ if(filter==="active"&&t.done)return false; if(filter==="done"&&!t.done)return false; if(catFilter!=="all"&&t.cat!==catFilter)return false; if(customCatFilter!=="all"&&String(t.customCategoryId||"none")!==customCatFilter)return false; if(tagFilter&&!(t.tags||[]).includes(tagFilter))return false; return true; }).sort(sortFn);
   const counts={total:tasks.length,done:tasks.filter(t=>t.done).length,high:tasks.filter(t=>t.priority==="high"&&!t.done).length};
   const yr=calDate.getFullYear(),mo=calDate.getMonth();
   const daysInMo=new Date(yr,mo+1,0).getDate();
@@ -571,11 +572,35 @@ export default function App() {
           <button style={{border:"1px solid #c7d2fe",background:"#fff",borderRadius:7,padding:"5px 10px",fontSize:12,color:"#6366f1",cursor:"pointer",fontWeight:500}}>Test →</button>
         </div>}
 
-        {/* Tag filters */}
-        {allTags.length>0&&<div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:12}}>
-          {allTags.map(tag=>{const c=tagColor(tag),active=tagFilter===tag;return(<button key={tag} onClick={()=>setTagFilter(active?null:tag)} style={{border:`1px solid ${active?c:"#e5e5e5"}`,background:active?c+"22":"#fff",color:active?c:"#888",borderRadius:99,padding:"3px 9px",fontSize:11,fontWeight:active?600:400,cursor:"pointer"}}>#{tag}</button>);})}
-          {tagFilter&&<button onClick={()=>setTagFilter(null)} style={{border:"1px solid #ebebeb",background:"none",color:"#aaa",borderRadius:99,padding:"3px 9px",fontSize:11,cursor:"pointer"}}>× clear</button>}
-        </div>}
+        {/* Category + Tag filters */}
+        {(categories.length>0||allTags.length>0)&&(
+          <div style={{background:"#fff",border:"1px solid #ebebeb",borderRadius:12,padding:"10px 14px",marginBottom:14}}>
+            {/* Custom category filter */}
+            {categories.length>0&&<div style={{marginBottom:allTags.length>0?10:0}}>
+              <div style={{fontSize:11,fontWeight:600,color:"#aaa",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>📁 Category</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                <button onClick={()=>setCustomCatFilter("all")} style={{border:"1px solid "+(customCatFilter==="all"?"#6366f1":"#ebebeb"),background:customCatFilter==="all"?"#eef2ff":"#fff",color:customCatFilter==="all"?"#6366f1":"#666",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:customCatFilter==="all"?600:400,cursor:"pointer"}}>All</button>
+                <button onClick={()=>setCustomCatFilter("none")} style={{border:"1px solid "+(customCatFilter==="none"?"#6366f1":"#ebebeb"),background:customCatFilter==="none"?"#eef2ff":"#fff",color:customCatFilter==="none"?"#6366f1":"#666",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:customCatFilter==="none"?600:400,cursor:"pointer"}}>— None</button>
+                {categories.map(c=>{const active=customCatFilter===String(c.id);return(
+                  <button key={c.id} onClick={()=>setCustomCatFilter(active?"all":String(c.id))} style={{border:`1px solid ${active?c.color:"#ebebeb"}`,background:active?c.color+"22":"#fff",color:active?c.color:"#666",borderRadius:99,padding:"4px 12px",fontSize:12,fontWeight:active?600:400,cursor:"pointer",display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{fontFamily:"monospace",fontSize:11}}>{c.code}</span>
+                    <span>{c.name}</span>
+                  </button>
+                );})}
+              </div>
+            </div>}
+            {/* Tag filter */}
+            {allTags.length>0&&<div>
+              <div style={{fontSize:11,fontWeight:600,color:"#aaa",marginBottom:6,textTransform:"uppercase",letterSpacing:.5}}>🏷️ Tags</div>
+              <div style={{display:"flex",gap:5,flexWrap:"wrap"}}>
+                {allTags.map(tag=>{const c=tagColor(tag),active=tagFilter===tag;return(
+                  <button key={tag} onClick={()=>setTagFilter(active?null:tag)} style={{border:`1px solid ${active?c:"#e5e5e5"}`,background:active?c+"22":"#fff",color:active?c:"#777",borderRadius:99,padding:"4px 10px",fontSize:12,fontWeight:active?600:400,cursor:"pointer"}}>#{tag}</button>
+                );})}
+                {tagFilter&&<button onClick={()=>setTagFilter(null)} style={{border:"1px solid #ebebeb",background:"none",color:"#aaa",borderRadius:99,padding:"4px 10px",fontSize:12,cursor:"pointer"}}>× clear</button>}
+              </div>
+            </div>}
+          </div>
+        )}
 
         {/* LIST */}
         {view==="list"&&(loading

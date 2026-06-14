@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { supabase } from "./supabase";
 
 const PRIORITIES = {
   high:   { label: "High",   color: "#ef4444", bg: "#fef2f2" },
@@ -20,26 +21,93 @@ const S = {
   nav: { border:"1px solid #ebebeb", background:"#fff", borderRadius:8, width:34, height:34, fontSize:18, cursor:"pointer", color:"#444", display:"flex", alignItems:"center", justifyContent:"center" },
 };
 
-const DEFAULT_TASKS = [
-  { id:1, title:"Prepare client meeting", desc:"Slides + Q2 report", cat:"work",     priority:"high",   due: new Date(Date.now()+3600000).toISOString().slice(0,16), done:false, tags:["meeting","client"] },
-  { id:2, title:"Grocery shopping",       desc:"Vegetables, bread, cheese",           cat:"personal", priority:"low",    due:"", done:false, tags:["errands"] },
-  { id:3, title:"Send invoice",           desc:"",                                    cat:"work",     priority:"medium", due: new Date(Date.now()+7200000).toISOString().slice(0,16), done:false, tags:["finance","admin"] },
-];
-
 let notifTimers = {};
 let digestTimer  = null;
 
-export default function App() {
-  // ── Load from localStorage (persists across page reloads) ──
-  const [tasks, setTasks] = useState(() => {
-    try {
-      const saved = localStorage.getItem("taskmanager_tasks");
-      return saved ? JSON.parse(saved) : DEFAULT_TASKS;
-    } catch {
-      return DEFAULT_TASKS;
-    }
-  });
+// ─── Login Screen ────────────────────────────────────────────
+function LoginScreen() {
+  const [email,    setEmail]    = useState("");
+  const [password, setPassword] = useState("");
+  const [error,    setError]    = useState("");
+  const [loading,  setLoading]  = useState(false);
+  const [mode,     setMode]     = useState("login"); // "login" | "forgot"
+  const [sent,     setSent]     = useState(false);
 
+  const handleLogin = async () => {
+    if (!email || !password) return setError("Please fill in all fields.");
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) setError("Incorrect email or password.");
+    setLoading(false);
+  };
+
+  const handleForgot = async () => {
+    if (!email) return setError("Enter your email address first.");
+    setLoading(true); setError("");
+    await supabase.auth.resetPasswordForEmail(email);
+    setSent(true); setLoading(false);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f8f8f7",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',system-ui,sans-serif",padding:24}}>
+      <div style={{background:"#fff",borderRadius:16,padding:"36px 32px",width:"100%",maxWidth:380,boxShadow:"0 4px 32px rgba(0,0,0,.08)"}}>
+        {/* Logo */}
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:36,marginBottom:8}}>📋</div>
+          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111",letterSpacing:"-0.5px"}}>My Tasks</h1>
+          <p style={{margin:"6px 0 0",fontSize:14,color:"#aaa"}}>
+            {mode==="login" ? "Sign in to access your workspace" : "Reset your password"}
+          </p>
+        </div>
+
+        {mode==="login" && !sent && <>
+          <label style={S.lbl}>Email</label>
+          <input value={email} onChange={e=>{setEmail(e.target.value);setError("");}}
+            placeholder="you@example.com" type="email" style={S.inp}
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+          <label style={S.lbl}>Password</label>
+          <input value={password} onChange={e=>{setPassword(e.target.value);setError("");}}
+            placeholder="••••••••" type="password" style={S.inp}
+            onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
+          <button onClick={handleLogin} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1,marginBottom:12}}>
+            {loading ? "Signing in…" : "Sign in"}
+          </button>
+          <button onClick={()=>{setMode("forgot");setError("");}} style={{width:"100%",border:"none",background:"none",color:"#aaa",fontSize:13,cursor:"pointer",padding:4}}>
+            Forgot password?
+          </button>
+        </>}
+
+        {mode==="forgot" && !sent && <>
+          <label style={S.lbl}>Email</label>
+          <input value={email} onChange={e=>{setEmail(e.target.value);setError("");}}
+            placeholder="you@example.com" type="email" style={S.inp}/>
+          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
+          <button onClick={handleForgot} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1,marginBottom:12}}>
+            {loading ? "Sending…" : "Send reset link"}
+          </button>
+          <button onClick={()=>{setMode("login");setError("");setSent(false);}} style={{width:"100%",border:"none",background:"none",color:"#aaa",fontSize:13,cursor:"pointer",padding:4}}>
+            ← Back to sign in
+          </button>
+        </>}
+
+        {sent && (
+          <div style={{textAlign:"center",padding:"16px 0"}}>
+            <div style={{fontSize:32,marginBottom:10}}>📬</div>
+            <p style={{fontSize:14,color:"#555",margin:0}}>Check your inbox! A reset link has been sent to <strong>{email}</strong>.</p>
+            <button onClick={()=>{setMode("login");setSent(false);}} style={{marginTop:16,border:"none",background:"none",color:"#6366f1",fontSize:13,cursor:"pointer",fontWeight:600}}>← Back to sign in</button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Main App ────────────────────────────────────────────────
+export default function App() {
+  const [session,    setSession]    = useState(undefined); // undefined = loading
+  const [tasks,      setTasks]      = useState([]);
+  const [loadingT,   setLoadingT]   = useState(true);
   const [form,       setForm]       = useState({ title:"", desc:"", cat:"work", priority:"medium", due:"", tagInput:"", tags:[] });
   const [showForm,   setShowForm]   = useState(false);
   const [view,       setView]       = useState("list");
@@ -51,78 +119,102 @@ export default function App() {
   const [showDigest, setShowDigest] = useState(false);
   const [calDate,    setCalDate]    = useState(new Date());
   const [selDay,     setSelDay]     = useState(null);
-  const nextId = useRef(tasks.reduce((m,t)=>Math.max(m,t.id),0)+1);
+  const nextId = useRef(Date.now());
 
-  // ── Save to localStorage on every change ──
+  // ── Auth state ──
   useEffect(() => {
-    localStorage.setItem("taskmanager_tasks", JSON.stringify(tasks));
-  }, [tasks]);
-
-  useEffect(() => {
-    if ("Notification" in window) setNotifPerm(Notification.permission);
+    supabase.auth.getSession().then(({ data }) => setSession(data.session));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    return () => subscription.unsubscribe();
   }, []);
 
-  // ── Reminders ──
+  // ── Load tasks (only when logged in) ──
   useEffect(() => {
-    Object.values(notifTimers).forEach(clearTimeout);
-    notifTimers = {};
+    if (!session) return;
+    loadTasks();
+    if ("Notification" in window) setNotifPerm(Notification.permission);
+  }, [session]);
+
+  // ── Real-time updates ──
+  useEffect(() => {
+    if (!session) return;
+    const ch = supabase.channel("tasks-rt")
+      .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, loadTasks)
+      .subscribe();
+    return () => supabase.removeChannel(ch);
+  }, [session]);
+
+  async function loadTasks() {
+    const { data, error } = await supabase.from("tasks").select("*").order("id");
+    if (!error) setTasks(data || []);
+    setLoadingT(false);
+  }
+
+  useEffect(() => {
+    Object.values(notifTimers).forEach(clearTimeout); notifTimers = {};
     tasks.filter(t=>!t.done&&t.due).forEach(t=>{
-      const ms = new Date(t.due)-Date.now()-5*60*1000;
-      if (ms>0&&ms<86400000)
-        notifTimers[t.id] = setTimeout(()=>{
-          if (Notification.permission==="granted") new Notification("⏰ "+t.title,{body:"Due in 5 minutes!"});
-        }, ms);
+      const ms=new Date(t.due)-Date.now()-5*60*1000;
+      if(ms>0&&ms<86400000) notifTimers[t.id]=setTimeout(()=>{
+        if(Notification.permission==="granted") new Notification("⏰ "+t.title,{body:"Due in 5 minutes!"});
+      },ms);
     });
   }, [tasks]);
 
-  // ── Daily digest ──
   useEffect(() => {
-    if (digestTimer) clearTimeout(digestTimer);
-    const [h,m] = digestTime.split(":").map(Number);
-    const next = new Date(); next.setHours(h,m,0,0);
-    if (next<=new Date()) next.setDate(next.getDate()+1);
-    digestTimer = setTimeout(function fire(){
-      if (Notification.permission==="granted"){
-        const todo=tasks.filter(t=>!t.done), late=todo.filter(t=>t.due&&new Date(t.due)<new Date()), urg=todo.filter(t=>t.priority==="high");
+    if(digestTimer) clearTimeout(digestTimer);
+    const [h,m]=digestTime.split(":").map(Number);
+    const next=new Date(); next.setHours(h,m,0,0);
+    if(next<=new Date()) next.setDate(next.getDate()+1);
+    digestTimer=setTimeout(function fire(){
+      if(Notification.permission==="granted"){
+        const todo=tasks.filter(t=>!t.done),late=todo.filter(t=>t.due&&new Date(t.due)<new Date()),urg=todo.filter(t=>t.priority==="high");
         new Notification("📋 Daily digest",{body:`${todo.length} task(s) · ${urg.length} urgent · ${late.length} overdue`});
       }
-      digestTimer = setTimeout(fire,86400000);
-    }, next-new Date());
-    return ()=>clearTimeout(digestTimer);
-  }, [digestTime, tasks]);
+      digestTimer=setTimeout(fire,86400000);
+    },next-new Date());
+    return()=>clearTimeout(digestTimer);
+  },[digestTime,tasks]);
 
   const requestNotif = async () => { const p=await Notification.requestPermission(); setNotifPerm(p); };
 
   const addFormTag = () => {
     const t=form.tagInput.trim().toLowerCase().replace(/\s+/g,"-");
-    if (t&&!form.tags.includes(t)) setForm(f=>({...f,tags:[...f.tags,t],tagInput:""}));
+    if(t&&!form.tags.includes(t)) setForm(f=>({...f,tags:[...f.tags,t],tagInput:""}));
     else setForm(f=>({...f,tagInput:""}));
   };
 
-  const addTask = () => {
-    if (!form.title.trim()) return;
-    setTasks(prev=>[...prev,{id:nextId.current++,title:form.title.trim(),desc:form.desc.trim(),cat:form.cat,priority:form.priority,due:form.due,done:false,tags:form.tags}]);
+  const addTask = async () => {
+    if(!form.title.trim()) return;
+    await supabase.from("tasks").insert({id:nextId.current++,title:form.title.trim(),description:form.desc.trim(),cat:form.cat,priority:form.priority,due:form.due,done:false,tags:form.tags});
     setForm({title:"",desc:"",cat:"work",priority:"medium",due:"",tagInput:"",tags:[]});
     setShowForm(false);
   };
-  const toggleDone = id => setTasks(prev=>prev.map(t=>t.id===id?{...t,done:!t.done}:t));
-  const deleteTask = id => setTasks(prev=>prev.filter(t=>t.id!==id));
+  const toggleDone  = async (id,done) => await supabase.from("tasks").update({done:!done}).eq("id",id);
+  const deleteTask  = async (id)      => await supabase.from("tasks").delete().eq("id",id);
+  const deleteDone  = async ()        => await supabase.from("tasks").delete().eq("done",true);
+  const handleLogout = async ()       => await supabase.auth.signOut();
 
-  const allTags = [...new Set(tasks.flatMap(t=>t.tags||[]))];
-  const visible = tasks.filter(t=>{
-    if (filter==="active"&&t.done) return false;
-    if (filter==="done"&&!t.done) return false;
-    if (catFilter!=="all"&&t.cat!==catFilter) return false;
-    if (tagFilter&&!(t.tags||[]).includes(tagFilter)) return false;
+  // ── Render states ──
+  if (session === undefined) return (
+    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#aaa",fontSize:14,fontFamily:"system-ui"}}>
+      <div style={{textAlign:"center"}}><div style={{fontSize:32,marginBottom:8}}>📋</div>Loading…</div>
+    </div>
+  );
+  if (!session) return <LoginScreen />;
+
+  const allTags=[...new Set(tasks.flatMap(t=>t.tags||[]))];
+  const visible=tasks.filter(t=>{
+    if(filter==="active"&&t.done) return false;
+    if(filter==="done"&&!t.done) return false;
+    if(catFilter!=="all"&&t.cat!==catFilter) return false;
+    if(tagFilter&&!(t.tags||[]).includes(tagFilter)) return false;
     return true;
   }).sort((a,b)=>{
-    if (a.done!==b.done) return a.done?1:-1;
+    if(a.done!==b.done) return a.done?1:-1;
     return {high:0,medium:1,low:2}[a.priority]-{high:0,medium:1,low:2}[b.priority];
   });
-
   const counts={total:tasks.length,done:tasks.filter(t=>t.done).length,high:tasks.filter(t=>t.priority==="high"&&!t.done).length};
-
-  const yr=calDate.getFullYear(), mo=calDate.getMonth();
+  const yr=calDate.getFullYear(),mo=calDate.getMonth();
   const daysInMo=new Date(yr,mo+1,0).getDate();
   const firstDay=(d=>d===0?6:d-1)(new Date(yr,mo,1).getDay());
   const dayTasks=day=>tasks.filter(t=>t.due&&sameDay(new Date(t.due),new Date(yr,mo,day)));
@@ -136,13 +228,16 @@ export default function App() {
               <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111",letterSpacing:"-0.5px"}}>My Tasks</h1>
               <p style={{margin:"2px 0 0",fontSize:13,color:"#888"}}>
                 {counts.done}/{counts.total} completed{counts.high>0?` · ${counts.high} urgent`:""}
+                <span style={{marginLeft:8,color:"#ccc"}}>·</span>
+                <span style={{marginLeft:8,color:"#aaa"}}>{session.user.email}</span>
               </p>
             </div>
             <div style={{display:"flex",gap:8}}>
               {notifPerm!=="granted"
-                ? <button onClick={requestNotif} title="Enable reminders" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>🔔</button>
-                : <button onClick={()=>setShowDigest(s=>!s)} title="Daily digest" style={{border:"1px solid "+(showDigest?"#6366f1":"#ebebeb"),borderRadius:8,background:showDigest?"#eef2ff":"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>📬</button>
+                ?<button onClick={requestNotif} title="Enable reminders" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>🔔</button>
+                :<button onClick={()=>setShowDigest(s=>!s)} style={{border:"1px solid "+(showDigest?"#6366f1":"#ebebeb"),borderRadius:8,background:showDigest?"#eef2ff":"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>📬</button>
               }
+              <button onClick={handleLogout} title="Sign out" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>🚪</button>
               <button onClick={()=>{setShowForm(s=>!s);setView("list");}} style={{background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:14,fontWeight:600,cursor:"pointer"}}>
                 {showForm?"× Close":"+ New Task"}
               </button>
@@ -245,11 +340,13 @@ export default function App() {
         )}
 
         {view==="list"&&(
-          visible.length===0
-            ?<div style={{textAlign:"center",padding:"60px 20px",color:"#aaa"}}><div style={{fontSize:40,marginBottom:10}}>✅</div><p style={{margin:0,fontSize:15}}>No tasks here</p></div>
-            :<div style={{display:"flex",flexDirection:"column",gap:10}}>
-               {visible.map(t=><TaskCard key={t.id} t={t} onToggle={toggleDone} onDelete={deleteTask} onTagClick={tag=>setTagFilter(tagFilter===tag?null:tag)} activeTag={tagFilter}/>)}
-             </div>
+          loadingT
+            ?<div style={{textAlign:"center",padding:"60px 0",color:"#aaa"}}>Loading tasks…</div>
+            :visible.length===0
+              ?<div style={{textAlign:"center",padding:"60px 20px",color:"#aaa"}}><div style={{fontSize:40,marginBottom:10}}>✅</div><p style={{margin:0,fontSize:15}}>No tasks here</p></div>
+              :<div style={{display:"flex",flexDirection:"column",gap:10}}>
+                 {visible.map(t=><TaskCard key={t.id} t={t} onToggle={()=>toggleDone(t.id,t.done)} onDelete={()=>deleteTask(t.id)} onTagClick={tag=>setTagFilter(tagFilter===tag?null:tag)} activeTag={tagFilter}/>)}
+               </div>
         )}
 
         {view==="calendar"&&(
@@ -293,7 +390,7 @@ export default function App() {
                 {dayTasks(selDay).length===0
                   ?<p style={{color:"#aaa",fontSize:14,margin:0}}>No tasks on this day.</p>
                   :<div style={{display:"flex",flexDirection:"column",gap:8}}>
-                     {dayTasks(selDay).map(t=><TaskCard key={t.id} t={t} onToggle={toggleDone} onDelete={deleteTask} onTagClick={tag=>setTagFilter(tag)} activeTag={tagFilter}/>)}
+                     {dayTasks(selDay).map(t=><TaskCard key={t.id} t={t} onToggle={()=>toggleDone(t.id,t.done)} onDelete={()=>deleteTask(t.id)} onTagClick={tag=>setTagFilter(tag)} activeTag={tagFilter}/>)}
                    </div>
                 }
               </div>
@@ -302,7 +399,7 @@ export default function App() {
         )}
 
         {counts.done>0&&view==="list"&&filter!=="done"&&(
-          <button onClick={()=>setTasks(prev=>prev.filter(t=>!t.done))} style={{marginTop:16,border:"none",background:"none",color:"#ccc",fontSize:13,cursor:"pointer",display:"block",width:"100%",textAlign:"center",padding:8}}>
+          <button onClick={deleteDone} style={{marginTop:16,border:"none",background:"none",color:"#ccc",fontSize:13,cursor:"pointer",display:"block",width:"100%",textAlign:"center",padding:8}}>
             Remove {counts.done} completed task{counts.done>1?"s":""}
           </button>
         )}
@@ -312,10 +409,10 @@ export default function App() {
 }
 
 function TaskCard({t,onToggle,onDelete,onTagClick,activeTag}){
-  const p=PRIORITIES[t.priority], late=isOverdue(t.due,t.done);
+  const p=PRIORITIES[t.priority],late=isOverdue(t.due,t.done);
   return(
     <div style={{background:t.done?"#fafafa":"#fff",border:"1px solid "+(late?"#fecaca":"#ebebeb"),borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"flex-start",gap:12,opacity:t.done?.6:1,transition:"all .2s"}}>
-      <button onClick={()=>onToggle(t.id)} style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(t.done?"#6366f1":"#d5d5d5"),background:t.done?"#6366f1":"transparent",cursor:"pointer",flexShrink:0,marginTop:1,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
+      <button onClick={onToggle} style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(t.done?"#6366f1":"#d5d5d5"),background:t.done?"#6366f1":"transparent",cursor:"pointer",flexShrink:0,marginTop:1,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
         {t.done&&<svg width="10" height="8" viewBox="0 0 10 8"><path d="M1 4l3 3 5-6" stroke="#fff" strokeWidth="1.8" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>}
       </button>
       <div style={{flex:1,minWidth:0}}>
@@ -324,7 +421,7 @@ function TaskCard({t,onToggle,onDelete,onTagClick,activeTag}){
           <span style={{fontSize:11,padding:"2px 7px",borderRadius:99,background:p.bg,color:p.color,fontWeight:600}}>{p.label}</span>
           <span style={{fontSize:11,padding:"2px 7px",borderRadius:99,background:"#f4f4f4",color:"#666"}}>{t.cat==="work"?"💼 Work":"🏠 Personal"}</span>
         </div>
-        {t.desc&&<p style={{margin:"0 0 6px",fontSize:13,color:"#888"}}>{t.desc}</p>}
+        {t.description&&<p style={{margin:"0 0 6px",fontSize:13,color:"#888"}}>{t.description}</p>}
         {(t.tags||[]).length>0&&(
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:t.due?6:0}}>
             {(t.tags||[]).map(tag=>{const c=tagColor(tag),active=activeTag===tag;return(
@@ -332,13 +429,9 @@ function TaskCard({t,onToggle,onDelete,onTagClick,activeTag}){
             );})}
           </div>
         )}
-        {t.due&&(
-          <div style={{fontSize:12,color:late?"#ef4444":"#aaa",display:"flex",alignItems:"center",gap:4}}>
-            {late?"⚠️ Overdue — ":"🕐 "}{formatDt(t.due)}
-          </div>
-        )}
+        {t.due&&<div style={{fontSize:12,color:late?"#ef4444":"#aaa",display:"flex",alignItems:"center",gap:4}}>{late?"⚠️ Overdue — ":"🕐 "}{formatDt(t.due)}</div>}
       </div>
-      <button onClick={()=>onDelete(t.id)} style={{border:"none",background:"none",cursor:"pointer",color:"#ccc",fontSize:20,padding:"0 2px",lineHeight:1,flexShrink:0,marginTop:-2}}>×</button>
+      <button onClick={onDelete} style={{border:"none",background:"none",cursor:"pointer",color:"#ccc",fontSize:20,padding:"0 2px",lineHeight:1,flexShrink:0,marginTop:-2}}>×</button>
     </div>
   );
 }

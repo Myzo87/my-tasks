@@ -1,18 +1,27 @@
-import { useState, useEffect, useRef } from "react";
-import { supabase } from "./supabase";
+import { useState, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_ANON_KEY
+);
 
 const PRIORITIES = {
-  high:   { label: "High",   color: "#ef4444", bg: "#fef2f2" },
-  medium: { label: "Medium", color: "#f59e0b", bg: "#fffbeb" },
-  low:    { label: "Low",    color: "#6366f1", bg: "#eef2ff" },
+  high:   { label:"High",   color:"#ef4444", bg:"#fef2f2" },
+  medium: { label:"Medium", color:"#f59e0b", bg:"#fffbeb" },
+  low:    { label:"Low",    color:"#6366f1", bg:"#eef2ff" },
 };
 const TAG_PALETTE = ["#6366f1","#ec4899","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ef4444","#06b6d4"];
-const tagColor = tag => { let h=0; for(let c of tag) h=(h*31+c.charCodeAt(0))%TAG_PALETTE.length; return TAG_PALETTE[h]; };
-const formatDt = dt => dt ? new Date(dt).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
+const tagColor  = tag => { let h=0; for(let c of tag) h=(h*31+c.charCodeAt(0))%TAG_PALETTE.length; return TAG_PALETTE[h]; };
+const formatDt  = dt => dt ? new Date(dt).toLocaleDateString("en-GB",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"}) : "";
 const isOverdue = (dt,done) => !done && dt && new Date(dt)<new Date();
 const sameDay   = (a,b) => a.getFullYear()===b.getFullYear()&&a.getMonth()===b.getMonth()&&a.getDate()===b.getDate();
 const MONTHS    = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 const DAYS      = ["Mon","Tue","Wed","Thu","Fri","Sat","Sun"];
+const PO        = { high:0, medium:1, low:2 };
+
+const fromDB = r => ({ id:r.id, title:r.title, desc:r.description||"", cat:r.category||"work", priority:r.priority||"medium", due:r.due_date||"", done:r.done||false, tags:r.tags||[], createdAt:r.created_at });
+const toDB   = t => ({ title:t.title, description:t.desc, category:t.cat, priority:t.priority, due_date:t.due||null, done:t.done, tags:t.tags });
 
 const S = {
   inp: { width:"100%", border:"1px solid #e5e5e5", borderRadius:8, padding:"10px 12px", fontSize:14, marginBottom:10, boxSizing:"border-box", outline:"none", fontFamily:"inherit" },
@@ -21,264 +30,178 @@ const S = {
   nav: { border:"1px solid #ebebeb", background:"#fff", borderRadius:8, width:34, height:34, fontSize:18, cursor:"pointer", color:"#444", display:"flex", alignItems:"center", justifyContent:"center" },
 };
 
-let notifTimers = {};
-let digestTimer  = null;
-
-// ─── Reset Password Screen ───────────────────────────────────
-function ResetPasswordScreen({ onDone }) {
-  const [password,  setPassword]  = useState("");
-  const [password2, setPassword2] = useState("");
-  const [error,     setError]     = useState("");
-  const [loading,   setLoading]   = useState(false);
-  const [done,      setDone]      = useState(false);
-
-  const handleReset = async () => {
-    if (!password) return setError("Please enter a new password.");
-    if (password.length < 6) return setError("Password must be at least 6 characters.");
-    if (password !== password2) return setError("Passwords do not match.");
-    setLoading(true); setError("");
-    const { error } = await supabase.auth.updateUser({ password });
-    if (error) { setError("Error: " + error.message); setLoading(false); return; }
-    setDone(true); setLoading(false);
-    setTimeout(onDone, 2000);
-  };
-
-  return (
-    <div style={{minHeight:"100vh",background:"#f8f8f7",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',system-ui,sans-serif",padding:24}}>
-      <div style={{background:"#fff",borderRadius:16,padding:"36px 32px",width:"100%",maxWidth:380,boxShadow:"0 4px 32px rgba(0,0,0,.08)"}}>
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:36,marginBottom:8}}>🔑</div>
-          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111"}}>New password</h1>
-          <p style={{margin:"6px 0 0",fontSize:14,color:"#aaa"}}>Choose a new password for your account</p>
-        </div>
-        {done ? (
-          <div style={{textAlign:"center",padding:"16px 0"}}>
-            <div style={{fontSize:32,marginBottom:10}}>✅</div>
-            <p style={{fontSize:14,color:"#555",margin:0}}>Password updated! Redirecting…</p>
-          </div>
-        ) : <>
-          <label style={{fontSize:12,color:"#888",display:"block",marginBottom:4}}>New password</label>
-          <input value={password} onChange={e=>{setPassword(e.target.value);setError("");}}
-            placeholder="••••••••" type="password"
-            style={{width:"100%",border:"1px solid #e5e5e5",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
-          <label style={{fontSize:12,color:"#888",display:"block",marginBottom:4}}>Confirm password</label>
-          <input value={password2} onChange={e=>{setPassword2(e.target.value);setError("");}}
-            placeholder="••••••••" type="password"
-            onKeyDown={e=>e.key==="Enter"&&handleReset()}
-            style={{width:"100%",border:"1px solid #e5e5e5",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
-          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
-          <button onClick={handleReset} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1}}>
-            {loading ? "Saving…" : "Save new password"}
-          </button>
-        </>}
-      </div>
-    </div>
-  );
-}
-
-// ─── Login Screen ────────────────────────────────────────────
+// ── Login ───────────────────────────────────────────────────
 function LoginScreen() {
-  const [email,    setEmail]    = useState("");
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [error,    setError]    = useState("");
-  const [loading,  setLoading]  = useState(false);
-  const [mode,     setMode]     = useState("login"); // "login" | "forgot"
-  const [sent,     setSent]     = useState(false);
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
 
-  const handleLogin = async () => {
-    if (!email || !password) return setError("Please fill in all fields.");
-    setLoading(true); setError("");
+  const login = async () => {
+    setError(""); setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) setError("Incorrect email or password.");
     setLoading(false);
-  };
-
-  const handleForgot = async () => {
-    if (!email) return setError("Enter your email address first.");
-    setLoading(true); setError("");
-    await supabase.auth.resetPasswordForEmail(email);
-    setSent(true); setLoading(false);
+    if (error) setError("Incorrect email or password.");
   };
 
   return (
-    <div style={{minHeight:"100vh",background:"#f8f8f7",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',system-ui,sans-serif",padding:24}}>
-      <div style={{background:"#fff",borderRadius:16,padding:"36px 32px",width:"100%",maxWidth:380,boxShadow:"0 4px 32px rgba(0,0,0,.08)"}}>
-        {/* Logo */}
-        <div style={{textAlign:"center",marginBottom:28}}>
-          <div style={{fontSize:36,marginBottom:8}}>📋</div>
-          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111",letterSpacing:"-0.5px"}}>My Tasks</h1>
-          <p style={{margin:"6px 0 0",fontSize:14,color:"#aaa"}}>
-            {mode==="login" ? "Sign in to access your workspace" : "Reset your password"}
-          </p>
+    <div style={{ minHeight:"100vh", background:"#f8f8f7", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif" }}>
+      <div style={{ background:"#fff", borderRadius:16, padding:32, width:"100%", maxWidth:380, boxShadow:"0 4px 32px rgba(0,0,0,.08)" }}>
+        <div style={{ textAlign:"center", marginBottom:28 }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>📋</div>
+          <h1 style={{ margin:0, fontSize:22, fontWeight:700, color:"#111" }}>My Tasks</h1>
+          <p style={{ margin:"6px 0 0", fontSize:14, color:"#888" }}>Sign in to access your tasks</p>
         </div>
-
-        {mode==="login" && !sent && <>
-          <label style={S.lbl}>Email</label>
-          <input value={email} onChange={e=>{setEmail(e.target.value);setError("");}}
-            placeholder="you@example.com" type="email" style={S.inp}
-            onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
-          <label style={S.lbl}>Password</label>
-          <input value={password} onChange={e=>{setPassword(e.target.value);setError("");}}
-            placeholder="••••••••" type="password" style={S.inp}
-            onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
-          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
-          <button onClick={handleLogin} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1,marginBottom:12}}>
-            {loading ? "Signing in…" : "Sign in"}
-          </button>
-          <button onClick={()=>{setMode("forgot");setError("");}} style={{width:"100%",border:"none",background:"none",color:"#aaa",fontSize:13,cursor:"pointer",padding:4}}>
-            Forgot password?
-          </button>
-        </>}
-
-        {mode==="forgot" && !sent && <>
-          <label style={S.lbl}>Email</label>
-          <input value={email} onChange={e=>{setEmail(e.target.value);setError("");}}
-            placeholder="you@example.com" type="email" style={S.inp}/>
-          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
-          <button onClick={handleForgot} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1,marginBottom:12}}>
-            {loading ? "Sending…" : "Send reset link"}
-          </button>
-          <button onClick={()=>{setMode("login");setError("");setSent(false);}} style={{width:"100%",border:"none",background:"none",color:"#aaa",fontSize:13,cursor:"pointer",padding:4}}>
-            ← Back to sign in
-          </button>
-        </>}
-
-        {sent && (
-          <div style={{textAlign:"center",padding:"16px 0"}}>
-            <div style={{fontSize:32,marginBottom:10}}>📬</div>
-            <p style={{fontSize:14,color:"#555",margin:0}}>Check your inbox! A reset link has been sent to <strong>{email}</strong>.</p>
-            <button onClick={()=>{setMode("login");setSent(false);}} style={{marginTop:16,border:"none",background:"none",color:"#6366f1",fontSize:13,cursor:"pointer",fontWeight:600}}>← Back to sign in</button>
-          </div>
-        )}
+        <label style={S.lbl}>Email</label>
+        <input value={email} onChange={e=>setEmail(e.target.value)} type="email" placeholder="you@example.com"
+          onKeyDown={e=>e.key==="Enter"&&login()} style={S.inp} autoFocus />
+        <label style={S.lbl}>Password</label>
+        <input value={password} onChange={e=>setPassword(e.target.value)} type="password" placeholder="••••••••"
+          onKeyDown={e=>e.key==="Enter"&&login()} style={{...S.inp,marginBottom:0}} />
+        {error && <p style={{ color:"#ef4444", fontSize:13, margin:"8px 0 0" }}>{error}</p>}
+        <button onClick={login} disabled={loading}
+          style={{ marginTop:20, background:"#6366f1", color:"#fff", border:"none", borderRadius:8, padding:"10px 20px", fontSize:14, fontWeight:600, cursor:"pointer", width:"100%", opacity:loading?.7:1 }}>
+          {loading ? "Signing in…" : "Sign in →"}
+        </button>
       </div>
     </div>
   );
 }
 
-// ─── Main App ────────────────────────────────────────────────
+// ── Main App ────────────────────────────────────────────────
 export default function App() {
-  const [session,    setSession]    = useState(undefined); // undefined = loading
+  const [session,    setSession]    = useState(undefined);
   const [tasks,      setTasks]      = useState([]);
-  const [loadingT,   setLoadingT]   = useState(true);
+  const [loadingDB,  setLoadingDB]  = useState(false);
   const [form,       setForm]       = useState({ title:"", desc:"", cat:"work", priority:"medium", due:"", tagInput:"", tags:[] });
   const [showForm,   setShowForm]   = useState(false);
   const [view,       setView]       = useState("list");
   const [filter,     setFilter]     = useState("all");
   const [catFilter,  setCatFilter]  = useState("all");
   const [tagFilter,  setTagFilter]  = useState(null);
+  const [sortBy,     setSortBy]     = useState("priority");
   const [notifPerm,  setNotifPerm]  = useState("default");
   const [digestTime, setDigestTime] = useState("08:00");
   const [showDigest, setShowDigest] = useState(false);
   const [calDate,    setCalDate]    = useState(new Date());
   const [selDay,     setSelDay]     = useState(null);
-  const nextId = useRef(Date.now());
+  const [toast,      setToast]      = useState(null);
 
-  const [isReset, setIsReset] = useState(false);
-
-  // ── Auth state ──
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
-      setSession(s);
-      if (event === "PASSWORD_RECOVERY") setIsReset(true);
-    });
+    supabase.auth.getSession().then(({data})=>setSession(data.session));
+    const { data:{subscription} } = supabase.auth.onAuthStateChange((_,s)=>setSession(s));
+    if ("Notification" in window) setNotifPerm(Notification.permission);
     return () => subscription.unsubscribe();
   }, []);
 
-  // ── Load tasks (only when logged in) ──
   useEffect(() => {
     if (!session) return;
-    loadTasks();
-    if ("Notification" in window) setNotifPerm(Notification.permission);
+    setLoadingDB(true);
+    supabase.from("tasks").select("*").order("created_at",{ascending:true})
+      .then(({data,error}) => {
+        if (!error) setTasks((data||[]).map(fromDB));
+        setLoadingDB(false);
+      });
   }, [session]);
 
-  // ── Real-time updates ──
-  useEffect(() => {
-    if (!session) return;
-    const ch = supabase.channel("tasks-rt")
-      .on("postgres_changes", { event:"*", schema:"public", table:"tasks" }, loadTasks)
-      .subscribe();
-    return () => supabase.removeChannel(ch);
-  }, [session]);
+  const showToast = (msg, type="error") => {
+    setToast({msg,type});
+    setTimeout(()=>setToast(null), 3000);
+  };
 
-  async function loadTasks() {
-    const { data, error } = await supabase.from("tasks").select("*").order("id");
-    if (!error) setTasks(data || []);
-    setLoadingT(false);
-  }
+  // ── CRUD avec mise à jour optimiste ───────────────────────
+  const addTask = async () => {
+    if (!form.title.trim()) return;
+    const tempId = `temp_${Date.now()}`;
+    const newTask = { id:tempId, title:form.title.trim(), desc:form.desc.trim(), cat:form.cat, priority:form.priority, due:form.due, done:false, tags:form.tags, createdAt:new Date().toISOString() };
 
-  useEffect(() => {
-    Object.values(notifTimers).forEach(clearTimeout); notifTimers = {};
-    tasks.filter(t=>!t.done&&t.due).forEach(t=>{
-      const ms=new Date(t.due)-Date.now()-5*60*1000;
-      if(ms>0&&ms<86400000) notifTimers[t.id]=setTimeout(()=>{
-        if(Notification.permission==="granted") new Notification("⏰ "+t.title,{body:"Due in 5 minutes!"});
-      },ms);
-    });
-  }, [tasks]);
+    // 1. Affiche immédiatement dans l'UI
+    setTasks(prev=>[...prev, newTask]);
+    setForm({title:"",desc:"",cat:"work",priority:"medium",due:"",tagInput:"",tags:[]});
+    setShowForm(false);
 
-  useEffect(() => {
-    if(digestTimer) clearTimeout(digestTimer);
-    const [h,m]=digestTime.split(":").map(Number);
-    const next=new Date(); next.setHours(h,m,0,0);
-    if(next<=new Date()) next.setDate(next.getDate()+1);
-    digestTimer=setTimeout(function fire(){
-      if(Notification.permission==="granted"){
-        const todo=tasks.filter(t=>!t.done),late=todo.filter(t=>t.due&&new Date(t.due)<new Date()),urg=todo.filter(t=>t.priority==="high");
-        new Notification("📋 Daily digest",{body:`${todo.length} task(s) · ${urg.length} urgent · ${late.length} overdue`});
-      }
-      digestTimer=setTimeout(fire,86400000);
-    },next-new Date());
-    return()=>clearTimeout(digestTimer);
-  },[digestTime,tasks]);
+    // 2. Sauvegarde en base
+    const {data, error} = await supabase.from("tasks").insert(toDB(newTask)).select().single();
+    if (error) {
+      // Rollback si erreur
+      setTasks(prev=>prev.filter(t=>t.id!==tempId));
+      showToast("Error saving task: "+error.message);
+    } else {
+      // Remplace l'id temporaire par le vrai id
+      setTasks(prev=>prev.map(t=>t.id===tempId ? fromDB(data) : t));
+      showToast("Task added ✓","success");
+    }
+  };
 
-  const requestNotif = async () => { const p=await Notification.requestPermission(); setNotifPerm(p); };
+  const toggleDone = async (id, done) => {
+    setTasks(prev=>prev.map(t=>t.id===id?{...t,done:!done}:t));
+    const {error} = await supabase.from("tasks").update({done:!done}).eq("id",id);
+    if (error) setTasks(prev=>prev.map(t=>t.id===id?{...t,done}:t));
+  };
+
+  const deleteTask = async id => {
+    const backup = tasks.find(t=>t.id===id);
+    setTasks(prev=>prev.filter(t=>t.id!==id));
+    const {error} = await supabase.from("tasks").delete().eq("id",id);
+    if (error) { setTasks(prev=>[...prev,backup]); showToast("Delete failed"); }
+  };
 
   const addFormTag = () => {
     const t=form.tagInput.trim().toLowerCase().replace(/\s+/g,"-");
-    if(t&&!form.tags.includes(t)) setForm(f=>({...f,tags:[...f.tags,t],tagInput:""}));
+    if (t&&!form.tags.includes(t)) setForm(f=>({...f,tags:[...f.tags,t],tagInput:""}));
     else setForm(f=>({...f,tagInput:""}));
   };
 
-  const addTask = async () => {
-    if(!form.title.trim()) return;
-    await supabase.from("tasks").insert({id:nextId.current++,title:form.title.trim(),description:form.desc.trim(),cat:form.cat,priority:form.priority,due:form.due,done:false,tags:form.tags});
-    setForm({title:"",desc:"",cat:"work",priority:"medium",due:"",tagInput:"",tags:[]});
-    setShowForm(false);
-  };
-  const toggleDone  = async (id,done) => await supabase.from("tasks").update({done:!done}).eq("id",id);
-  const deleteTask  = async (id)      => await supabase.from("tasks").delete().eq("id",id);
-  const deleteDone  = async ()        => await supabase.from("tasks").delete().eq("done",true);
-  const handleLogout = async ()       => await supabase.auth.signOut();
+  const requestNotif = async () => { const p=await Notification.requestPermission(); setNotifPerm(p); };
 
-  // ── Render states ──
-  if (session === undefined) return (
-    <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#aaa",fontSize:14,fontFamily:"system-ui"}}>
-      <div style={{textAlign:"center"}}><div style={{fontSize:32,marginBottom:8}}>📋</div>Loading…</div>
-    </div>
-  );
+  if (session===undefined) return <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100vh",color:"#aaa",fontSize:14,fontFamily:"system-ui"}}>Loading…</div>;
   if (!session) return <LoginScreen />;
-  if (isReset) return <ResetPasswordScreen onDone={() => setIsReset(false)} />;
 
-  const allTags=[...new Set(tasks.flatMap(t=>t.tags||[]))];
-  const visible=tasks.filter(t=>{
-    if(filter==="active"&&t.done) return false;
-    if(filter==="done"&&!t.done) return false;
-    if(catFilter!=="all"&&t.cat!==catFilter) return false;
-    if(tagFilter&&!(t.tags||[]).includes(tagFilter)) return false;
+  // ── Filtrage + tri ────────────────────────────────────────
+  const allTags = [...new Set(tasks.flatMap(t=>t.tags||[]))];
+
+  const sortFn = (a,b) => {
+    if (a.done!==b.done) return a.done?1:-1;
+    if (sortBy==="priority")   return PO[a.priority]-PO[b.priority];
+    if (sortBy==="added_desc") return new Date(b.createdAt)-new Date(a.createdAt);
+    if (sortBy==="added_asc")  return new Date(a.createdAt)-new Date(b.createdAt);
+    if (sortBy==="due_asc") {
+      if (!a.due && !b.due) return 0;
+      if (!a.due) return 1;
+      if (!b.due) return -1;
+      return new Date(a.due)-new Date(b.due);
+    }
+    if (sortBy==="alpha") return a.title.localeCompare(b.title);
+    return 0;
+  };
+
+  const visible = tasks.filter(t=>{
+    if (filter==="active"&&t.done) return false;
+    if (filter==="done"&&!t.done) return false;
+    if (catFilter!=="all"&&t.cat!==catFilter) return false;
+    if (tagFilter&&!(t.tags||[]).includes(tagFilter)) return false;
     return true;
-  }).sort((a,b)=>{
-    if(a.done!==b.done) return a.done?1:-1;
-    return {high:0,medium:1,low:2}[a.priority]-{high:0,medium:1,low:2}[b.priority];
-  });
-  const counts={total:tasks.length,done:tasks.filter(t=>t.done).length,high:tasks.filter(t=>t.priority==="high"&&!t.done).length};
-  const yr=calDate.getFullYear(),mo=calDate.getMonth();
+  }).sort(sortFn);
+
+  const counts = { total:tasks.length, done:tasks.filter(t=>t.done).length, high:tasks.filter(t=>t.priority==="high"&&!t.done).length };
+
+  // ── Calendrier ────────────────────────────────────────────
+  const yr=calDate.getFullYear(), mo=calDate.getMonth();
   const daysInMo=new Date(yr,mo+1,0).getDate();
   const firstDay=(d=>d===0?6:d-1)(new Date(yr,mo,1).getDay());
   const dayTasks=day=>tasks.filter(t=>t.due&&sameDay(new Date(t.due),new Date(yr,mo,day)));
 
   return (
     <div style={{minHeight:"100vh",background:"#f8f8f7",fontFamily:"'Inter',system-ui,sans-serif"}}>
+
+      {/* Toast */}
+      {toast&&(
+        <div style={{position:"fixed",bottom:24,left:"50%",transform:"translateX(-50%)",background:toast.type==="success"?"#10b981":"#ef4444",color:"#fff",borderRadius:10,padding:"10px 20px",fontSize:14,fontWeight:500,zIndex:9999,boxShadow:"0 4px 20px rgba(0,0,0,.15)"}}>
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Header */}
       <div style={{background:"#fff",borderBottom:"1px solid #ebebeb",padding:"20px 24px 0"}}>
         <div style={{maxWidth:720,margin:"0 auto"}}>
           <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:14}}>
@@ -286,8 +209,7 @@ export default function App() {
               <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111",letterSpacing:"-0.5px"}}>My Tasks</h1>
               <p style={{margin:"2px 0 0",fontSize:13,color:"#888"}}>
                 {counts.done}/{counts.total} completed{counts.high>0?` · ${counts.high} urgent`:""}
-                <span style={{marginLeft:8,color:"#ccc"}}>·</span>
-                <span style={{marginLeft:8,color:"#aaa"}}>{session.user.email}</span>
+                <span style={{marginLeft:8,color:"#c7d2fe",fontSize:11}}>● {session.user.email}</span>
               </p>
             </div>
             <div style={{display:"flex",gap:8}}>
@@ -295,10 +217,10 @@ export default function App() {
                 ?<button onClick={requestNotif} title="Enable reminders" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>🔔</button>
                 :<button onClick={()=>setShowDigest(s=>!s)} style={{border:"1px solid "+(showDigest?"#6366f1":"#ebebeb"),borderRadius:8,background:showDigest?"#eef2ff":"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>📬</button>
               }
-              <button onClick={handleLogout} title="Sign out" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:16}}>🚪</button>
               <button onClick={()=>{setShowForm(s=>!s);setView("list");}} style={{background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"8px 16px",fontSize:14,fontWeight:600,cursor:"pointer"}}>
                 {showForm?"× Close":"+ New Task"}
               </button>
+              <button onClick={()=>supabase.auth.signOut()} title="Sign out" style={{border:"1px solid #ebebeb",borderRadius:8,background:"#fff",padding:"7px 10px",cursor:"pointer",fontSize:15}}>🚪</button>
             </div>
           </div>
 
@@ -306,6 +228,7 @@ export default function App() {
             <div style={{height:"100%",width:`${counts.total?(counts.done/counts.total)*100:0}%`,background:"#6366f1",borderRadius:99,transition:"width .4s"}}/>
           </div>
 
+          {/* Tabs + filters */}
           <div style={{display:"flex",alignItems:"center",gap:2,marginTop:14,flexWrap:"wrap"}}>
             {[["list","📋 List"],["calendar","📅 Calendar"]].map(([v,l])=>(
               <button key={v} onClick={()=>setView(v)} style={{border:"none",background:"none",padding:"8px 14px",fontSize:13,fontWeight:view===v?600:400,color:view===v?"#6366f1":"#888",borderBottom:view===v?"2px solid #6366f1":"2px solid transparent",cursor:"pointer"}}>{l}</button>
@@ -316,7 +239,7 @@ export default function App() {
                 <button key={v} onClick={()=>setFilter(v)} style={{border:"none",background:"none",padding:"8px 12px",fontSize:13,fontWeight:filter===v?600:400,color:filter===v?"#6366f1":"#888",borderBottom:filter===v?"2px solid #6366f1":"2px solid transparent",cursor:"pointer"}}>{l}</button>
               ))}
             </>}
-            <div style={{marginLeft:"auto",display:"flex",gap:4}}>
+            <div style={{marginLeft:"auto",display:"flex",gap:4,alignItems:"center"}}>
               {[["all","All"],["work","💼"],["personal","🏠"]].map(([v,l])=>(
                 <button key={v} onClick={()=>setCatFilter(v)} style={{border:"1px solid "+(catFilter===v?"#6366f1":"#ebebeb"),background:catFilter===v?"#eef2ff":"#fff",color:catFilter===v?"#6366f1":"#666",padding:"5px 9px",borderRadius:20,fontSize:12,fontWeight:catFilter===v?600:400,cursor:"pointer"}}>{l}</button>
               ))}
@@ -326,20 +249,41 @@ export default function App() {
       </div>
 
       <div style={{maxWidth:720,margin:"0 auto",padding:"20px 24px"}}>
+
+        {/* Sort bar */}
+        {view==="list"&&(
+          <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:14,flexWrap:"wrap"}}>
+            <span style={{fontSize:12,color:"#aaa",fontWeight:500}}>Sort by</span>
+            {[
+              ["priority","🔴 Priority"],
+              ["added_desc","🕐 Newest"],
+              ["added_asc","🕐 Oldest"],
+              ["due_asc","📅 Due date"],
+              ["alpha","🔤 A → Z"],
+            ].map(([v,l])=>(
+              <button key={v} onClick={()=>setSortBy(v)} style={{border:"1px solid "+(sortBy===v?"#6366f1":"#ebebeb"),background:sortBy===v?"#eef2ff":"#fff",color:sortBy===v?"#6366f1":"#777",borderRadius:20,padding:"4px 11px",fontSize:12,fontWeight:sortBy===v?600:400,cursor:"pointer"}}>
+                {l}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Digest */}
         {showDigest&&(
           <div style={{background:"#eef2ff",border:"1px solid #c7d2fe",borderRadius:12,padding:"14px 16px",marginBottom:16,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
             <span style={{fontSize:14,color:"#4338ca",fontWeight:500}}>📬 Daily digest at</span>
             <input type="time" value={digestTime} onChange={e=>setDigestTime(e.target.value)} style={{border:"1px solid #c7d2fe",borderRadius:7,padding:"6px 10px",fontSize:14,color:"#4338ca",fontWeight:600,background:"#fff"}}/>
-            <span style={{fontSize:13,color:"#818cf8",flex:1}}>You'll get a daily notification summarising your tasks.</span>
+            <span style={{fontSize:13,color:"#818cf8",flex:1}}>Daily notification summarising your tasks.</span>
             <button onClick={()=>{
               if(Notification.permission==="granted"){
                 const todo=tasks.filter(t=>!t.done),late=todo.filter(t=>t.due&&new Date(t.due)<new Date()),urg=todo.filter(t=>t.priority==="high");
                 new Notification("📋 Daily digest",{body:`${todo.length} task(s) · ${urg.length} urgent · ${late.length} overdue`});
               }
-            }} style={{border:"1px solid #c7d2fe",background:"#fff",borderRadius:7,padding:"6px 12px",fontSize:13,color:"#6366f1",cursor:"pointer",fontWeight:500,whiteSpace:"nowrap"}}>Test now →</button>
+            }} style={{border:"1px solid #c7d2fe",background:"#fff",borderRadius:7,padding:"6px 12px",fontSize:13,color:"#6366f1",cursor:"pointer",fontWeight:500}}>Test now →</button>
           </div>
         )}
 
+        {/* Tag filters */}
         {allTags.length>0&&(
           <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:14}}>
             {allTags.map(tag=>{const c=tagColor(tag),active=tagFilter===tag;return(
@@ -349,6 +293,7 @@ export default function App() {
           </div>
         )}
 
+        {/* Add form */}
         {showForm&&(
           <div style={{background:"#fff",border:"1px solid #ebebeb",borderRadius:14,padding:20,marginBottom:20,boxShadow:"0 4px 24px rgba(0,0,0,.06)"}}>
             <h3 style={{margin:"0 0 14px",fontSize:15,fontWeight:600}}>New Task</h3>
@@ -368,7 +313,7 @@ export default function App() {
                 </select>
               </div>
               <div style={{flex:2,minWidth:150}}>
-                <label style={S.lbl}>Due date & reminder</label>
+                <label style={S.lbl}>Due date</label>
                 <input type="datetime-local" value={form.due} onChange={e=>setForm(f=>({...f,due:e.target.value}))} style={{...S.sel,fontSize:13}}/>
               </div>
             </div>
@@ -386,7 +331,7 @@ export default function App() {
               <div style={{display:"flex",gap:6}}>
                 <input value={form.tagInput} onChange={e=>setForm(f=>({...f,tagInput:e.target.value}))}
                   onKeyDown={e=>{if(e.key==="Enter"||e.key===","){e.preventDefault();addFormTag();}}}
-                  placeholder="Type a tag then press Enter…" style={{...S.inp,margin:0,flex:1}}/>
+                  placeholder="Type a tag then Enter…" style={{...S.inp,margin:0,flex:1}}/>
                 <button onClick={addFormTag} style={{border:"1px solid #e5e5e5",background:"#f9f9f9",borderRadius:8,padding:"8px 14px",cursor:"pointer",fontSize:16,color:"#555"}}>+</button>
               </div>
             </div>
@@ -397,9 +342,10 @@ export default function App() {
           </div>
         )}
 
+        {/* List view */}
         {view==="list"&&(
-          loadingT
-            ?<div style={{textAlign:"center",padding:"60px 0",color:"#aaa"}}>Loading tasks…</div>
+          loadingDB
+            ?<div style={{textAlign:"center",padding:"60px 20px",color:"#aaa"}}>Loading tasks…</div>
             :visible.length===0
               ?<div style={{textAlign:"center",padding:"60px 20px",color:"#aaa"}}><div style={{fontSize:40,marginBottom:10}}>✅</div><p style={{margin:0,fontSize:15}}>No tasks here</p></div>
               :<div style={{display:"flex",flexDirection:"column",gap:10}}>
@@ -407,6 +353,7 @@ export default function App() {
                </div>
         )}
 
+        {/* Calendar view */}
         {view==="calendar"&&(
           <div>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:16}}>
@@ -457,7 +404,11 @@ export default function App() {
         )}
 
         {counts.done>0&&view==="list"&&filter!=="done"&&(
-          <button onClick={deleteDone} style={{marginTop:16,border:"none",background:"none",color:"#ccc",fontSize:13,cursor:"pointer",display:"block",width:"100%",textAlign:"center",padding:8}}>
+          <button onClick={async()=>{
+            const ids=tasks.filter(t=>t.done).map(t=>t.id);
+            setTasks(prev=>prev.filter(t=>!t.done));
+            await supabase.from("tasks").delete().in("id",ids);
+          }} style={{marginTop:16,border:"none",background:"none",color:"#ccc",fontSize:13,cursor:"pointer",display:"block",width:"100%",textAlign:"center",padding:8}}>
             Remove {counts.done} completed task{counts.done>1?"s":""}
           </button>
         )}
@@ -467,7 +418,7 @@ export default function App() {
 }
 
 function TaskCard({t,onToggle,onDelete,onTagClick,activeTag}){
-  const p=PRIORITIES[t.priority],late=isOverdue(t.due,t.done);
+  const p=PRIORITIES[t.priority]||PRIORITIES.medium, late=isOverdue(t.due,t.done);
   return(
     <div style={{background:t.done?"#fafafa":"#fff",border:"1px solid "+(late?"#fecaca":"#ebebeb"),borderRadius:12,padding:"14px 16px",display:"flex",alignItems:"flex-start",gap:12,opacity:t.done?.6:1,transition:"all .2s"}}>
       <button onClick={onToggle} style={{width:22,height:22,borderRadius:"50%",border:"2px solid "+(t.done?"#6366f1":"#d5d5d5"),background:t.done?"#6366f1":"transparent",cursor:"pointer",flexShrink:0,marginTop:1,display:"flex",alignItems:"center",justifyContent:"center",transition:"all .2s"}}>
@@ -479,7 +430,7 @@ function TaskCard({t,onToggle,onDelete,onTagClick,activeTag}){
           <span style={{fontSize:11,padding:"2px 7px",borderRadius:99,background:p.bg,color:p.color,fontWeight:600}}>{p.label}</span>
           <span style={{fontSize:11,padding:"2px 7px",borderRadius:99,background:"#f4f4f4",color:"#666"}}>{t.cat==="work"?"💼 Work":"🏠 Personal"}</span>
         </div>
-        {t.description&&<p style={{margin:"0 0 6px",fontSize:13,color:"#888"}}>{t.description}</p>}
+        {t.desc&&<p style={{margin:"0 0 6px",fontSize:13,color:"#888"}}>{t.desc}</p>}
         {(t.tags||[]).length>0&&(
           <div style={{display:"flex",gap:5,flexWrap:"wrap",marginBottom:t.due?6:0}}>
             {(t.tags||[]).map(tag=>{const c=tagColor(tag),active=activeTag===tag;return(

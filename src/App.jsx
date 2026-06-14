@@ -24,6 +24,58 @@ const S = {
 let notifTimers = {};
 let digestTimer  = null;
 
+// ─── Reset Password Screen ───────────────────────────────────
+function ResetPasswordScreen({ onDone }) {
+  const [password,  setPassword]  = useState("");
+  const [password2, setPassword2] = useState("");
+  const [error,     setError]     = useState("");
+  const [loading,   setLoading]   = useState(false);
+  const [done,      setDone]      = useState(false);
+
+  const handleReset = async () => {
+    if (!password) return setError("Please enter a new password.");
+    if (password.length < 6) return setError("Password must be at least 6 characters.");
+    if (password !== password2) return setError("Passwords do not match.");
+    setLoading(true); setError("");
+    const { error } = await supabase.auth.updateUser({ password });
+    if (error) { setError("Error: " + error.message); setLoading(false); return; }
+    setDone(true); setLoading(false);
+    setTimeout(onDone, 2000);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f8f8f7",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Inter',system-ui,sans-serif",padding:24}}>
+      <div style={{background:"#fff",borderRadius:16,padding:"36px 32px",width:"100%",maxWidth:380,boxShadow:"0 4px 32px rgba(0,0,0,.08)"}}>
+        <div style={{textAlign:"center",marginBottom:28}}>
+          <div style={{fontSize:36,marginBottom:8}}>🔑</div>
+          <h1 style={{margin:0,fontSize:22,fontWeight:700,color:"#111"}}>New password</h1>
+          <p style={{margin:"6px 0 0",fontSize:14,color:"#aaa"}}>Choose a new password for your account</p>
+        </div>
+        {done ? (
+          <div style={{textAlign:"center",padding:"16px 0"}}>
+            <div style={{fontSize:32,marginBottom:10}}>✅</div>
+            <p style={{fontSize:14,color:"#555",margin:0}}>Password updated! Redirecting…</p>
+          </div>
+        ) : <>
+          <label style={{fontSize:12,color:"#888",display:"block",marginBottom:4}}>New password</label>
+          <input value={password} onChange={e=>{setPassword(e.target.value);setError("");}}
+            placeholder="••••••••" type="password"
+            style={{width:"100%",border:"1px solid #e5e5e5",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
+          <label style={{fontSize:12,color:"#888",display:"block",marginBottom:4}}>Confirm password</label>
+          <input value={password2} onChange={e=>{setPassword2(e.target.value);setError("");}}
+            placeholder="••••••••" type="password"
+            onKeyDown={e=>e.key==="Enter"&&handleReset()}
+            style={{width:"100%",border:"1px solid #e5e5e5",borderRadius:8,padding:"10px 12px",fontSize:14,marginBottom:10,boxSizing:"border-box",outline:"none",fontFamily:"inherit"}}/>
+          {error && <p style={{margin:"0 0 12px",fontSize:13,color:"#ef4444",textAlign:"center"}}>{error}</p>}
+          <button onClick={handleReset} disabled={loading} style={{width:"100%",background:"#6366f1",color:"#fff",border:"none",borderRadius:8,padding:"11px",fontSize:15,fontWeight:600,cursor:"pointer",opacity:loading?.7:1}}>
+            {loading ? "Saving…" : "Save new password"}
+          </button>
+        </>}
+      </div>
+    </div>
+  );
+}
+
 // ─── Login Screen ────────────────────────────────────────────
 function LoginScreen() {
   const [email,    setEmail]    = useState("");
@@ -121,10 +173,15 @@ export default function App() {
   const [selDay,     setSelDay]     = useState(null);
   const nextId = useRef(Date.now());
 
+  const [isReset, setIsReset] = useState(false);
+
   // ── Auth state ──
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, s) => {
+      setSession(s);
+      if (event === "PASSWORD_RECOVERY") setIsReset(true);
+    });
     return () => subscription.unsubscribe();
   }, []);
 
@@ -201,6 +258,7 @@ export default function App() {
     </div>
   );
   if (!session) return <LoginScreen />;
+  if (isReset) return <ResetPasswordScreen onDone={() => setIsReset(false)} />;
 
   const allTags=[...new Set(tasks.flatMap(t=>t.tags||[]))];
   const visible=tasks.filter(t=>{

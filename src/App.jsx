@@ -319,8 +319,11 @@ function TaskForm({task,tasks,profiles,categories,customTags,onSave,onClose,onCr
         <div style={{padding:"16px 20px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:12}}>
             {cat&&<span style={{fontSize:10,fontWeight:700,color:cat.color,fontFamily:"monospace",background:cat.color+"18",borderRadius:5,padding:"2px 7px"}}>{task?.taskCode||cat.code}</span>}
-            <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Task title *"
-              style={{flex:1,border:"none",fontSize:17,fontWeight:600,color:C.tx,outline:"none",fontFamily:"inherit",background:"transparent"}}/>
+            <div style={{flex:1,position:"relative"}}>
+              <input value={form.title} onChange={e=>setForm(f=>({...f,title:e.target.value}))} placeholder="Task title"
+                style={{width:"100%",border:`1.5px solid ${!form.title.trim()?C.err:"transparent"}`,borderRadius:7,fontSize:17,fontWeight:600,color:C.tx,outline:"none",fontFamily:"inherit",background:"transparent",padding:"2px 4px",boxSizing:"border-box"}}/>
+              <span style={{position:"absolute",top:-8,left:0,fontSize:9,color:C.err,fontWeight:700,background:C.card,padding:"0 3px"}}>Title *</span>
+            </div>
             <button onClick={onClose} style={{border:"none",background:C.bg,borderRadius:8,width:30,height:30,fontSize:18,cursor:"pointer",color:C.hi,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"center"}}>×</button>
           </div>
           {/* Status row */}
@@ -511,12 +514,31 @@ function TaskCard({ t, categories, customTags, onEdit, onChangeStatus }) {
 // ── Sprint View ────────────────────────────────────────────────
 function SprintView({ tasks, categories, customTags, onEdit, onChangeStatus }) {
   const mob=useIsMobile();
+  const [sprintCat,setSprintCat]=useState("all");
+  const [showDone,setShowDone]=useState(false);
   const getC=name=>{ const ct=customTags.find(t=>t.name===name); return ct?ct.color:autoTagC(name); };
+  const filtered=tasks
+    .filter(t=>sprintCat==="all"||String(t.customCategoryId||"none")===sprintCat)
+    .filter(t=>showDone||t.status!=="done");
   return (
+    <div>
+      {/* Category filter + done toggle */}
+      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+        <span style={{fontSize:11,fontWeight:600,color:C.hi}}>📁</span>
+        {[["all","All"],...categories.map(c=>[String(c.id),c.code+" — "+c.name,c.color]),["none","No category"]].map(([v,l,col])=>{
+          const active=sprintCat===v;
+          return <button key={v} onClick={()=>setSprintCat(active?"all":v)}
+            style={{border:`1px solid ${active?(col||C.p):C.border}`,background:active?(col||C.p)+"22":"#fff",color:active?(col||C.p):C.mu,borderRadius:99,padding:"4px 11px",fontSize:11,fontWeight:active?700:400,cursor:"pointer"}}>{l}</button>;
+        })}
+        <button onClick={()=>setShowDone(s=>!s)}
+          style={{marginLeft:"auto",border:`1px solid ${showDone?C.ok:C.border}`,background:showDone?C.ok+"18":"#fff",color:showDone?C.ok:C.mu,borderRadius:99,padding:"4px 11px",fontSize:11,fontWeight:showDone?600:400,cursor:"pointer"}}>
+          {showDone?"✓ Showing done":"○ Hide done"}
+        </button>
+      </div>
     <div style={{overflowX:"auto",paddingBottom:8}}>
       <div style={{display:"flex",gap:10,minWidth:mob?"800px":"auto"}}>
         {Object.entries(STATUSES).map(([key,st])=>{
-          const col=tasks.filter(t=>(t.status||"not_started")===key);
+          const col=filtered.filter(t=>(t.status||"not_started")===key);
           return(
             <div key={key} style={{flex:1,minWidth:mob?"190px":"auto",display:"flex",flexDirection:"column"}}>
               <div style={{padding:"8px 10px",borderRadius:"9px 9px 0 0",background:st.color+"18",border:`1px solid ${st.color}33`,borderBottom:"none",display:"flex",alignItems:"center",gap:6}}>
@@ -779,30 +801,51 @@ function ShareModal({tasks,categories,onClose}) {
         </div>
       </div>
     </div>
+    </div>
   );
 }
 
 // ── Category Modal ────────────────────────────────────────────
-function CategoryModal({categories,onSave,onDelete,onClose}) {
+function CategoryModal({categories, tasks, onSave, onDelete, onClose}) {
   const [name,setName]=useState(""); const [code,setCode]=useState(""); const [color,setColor]=useState("#6366f1");
+  const [delErr,setDelErr]=useState("");
+
+  const handleDelete=async id=>{
+    const linked=(tasks||[]).filter(t=>t.customCategoryId==id);
+    if(linked.length>0){
+      setDelErr(`Cannot delete: ${linked.length} task${linked.length>1?"s":""} linked to this category.`);
+      setTimeout(()=>setDelErr(""),4000); return;
+    }
+    await onDelete(id); setDelErr("");
+  };
   return(
     <div onClick={e=>e.target===e.currentTarget&&onClose()} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.5)",zIndex:2000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}}>
       <div style={{background:C.card,borderRadius:14,padding:20,width:"100%",maxWidth:400,maxHeight:"85vh",overflowY:"auto"}}>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:10}}><h2 style={{margin:0,fontSize:15,fontWeight:700,color:C.tx}}>📁 Categories</h2><button onClick={onClose} style={{border:"none",background:"none",fontSize:20,cursor:"pointer",color:C.hi}}>×</button></div>
-        {categories.map(c=>(
+        {delErr&&<div style={{background:"#fef2f2",border:"1px solid #fecaca",borderRadius:7,padding:"7px 11px",marginBottom:10,fontSize:12,color:C.err}}>⚠️ {delErr}</div>}
+        {categories.map(c=>{ const linked=(tasks||[]).filter(t=>t.customCategoryId==c.id).length; return(
           <div key={c.id} style={{display:"flex",alignItems:"center",gap:7,padding:"7px 10px",background:C.bg,borderRadius:7,marginBottom:5}}>
-            <div style={{width:4,height:22,borderRadius:2,background:c.color}}/><span style={{fontSize:11,fontWeight:700,color:c.color,minWidth:48,fontFamily:"monospace"}}>{c.code}</span><span style={{fontSize:12,flex:1,color:C.tx}}>{c.name}</span>
-            <button onClick={()=>onDelete(c.id)} style={{border:"none",background:"none",color:C.hi,cursor:"pointer",fontSize:15}}>×</button>
+            <div style={{width:4,height:22,borderRadius:2,background:c.color}}/><span style={{fontSize:11,fontWeight:700,color:c.color,minWidth:48,fontFamily:"monospace"}}>{c.code}</span>
+            <span style={{fontSize:12,flex:1,color:C.tx}}>{c.name}</span>
+            <span style={{fontSize:10,color:C.hi,marginRight:4}}>{linked>0?`${linked} task${linked>1?"s":""}`:""}</span>
+            <button onClick={()=>handleDelete(c.id)} title={linked>0?"Has linked tasks — cannot delete":"Delete"} style={{border:"none",background:"none",color:linked>0?"#fca5a5":C.hi,cursor:linked>0?"not-allowed":"pointer",fontSize:15}}>×</button>
           </div>
-        ))}
+        );})}
         {!categories.length&&<p style={{fontSize:12,color:C.hi,textAlign:"center",padding:"8px 0"}}>No categories yet</p>}
         <div style={{borderTop:`1px solid ${C.border}`,paddingTop:12,marginTop:8}}>
+          <div style={{fontSize:10,fontWeight:600,color:C.mu,marginBottom:7,textTransform:"uppercase",letterSpacing:.4}}>New category</div>
           <div style={{display:"flex",gap:6,marginBottom:7}}>
-            <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name" style={{flex:1,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"inherit"}}/>
-            <input value={code} onChange={e=>setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g,"").slice(0,5))} placeholder="CODE" style={{width:70,border:`1px solid ${C.border}`,borderRadius:7,padding:"7px 8px",fontSize:12,outline:"none",fontFamily:"monospace",fontWeight:700,textAlign:"center"}}/>
+            <div style={{flex:1,position:"relative"}}>
+              <input value={name} onChange={e=>setName(e.target.value)} placeholder="Name" style={{width:"100%",border:`1.5px solid ${!name&&C.err||C.border}`,borderRadius:7,padding:"7px 10px",fontSize:13,outline:"none",fontFamily:"inherit",boxSizing:"border-box"}}/>
+              {!name&&<span style={{position:"absolute",top:-6,right:6,fontSize:9,color:C.err,background:"#fff",padding:"0 2px",fontWeight:700}}>required</span>}
+            </div>
+            <div style={{position:"relative"}}>
+              <input value={code} onChange={e=>setCode(e.target.value.toUpperCase().replace(/[^A-Z]/g,"").slice(0,5))} placeholder="CODE" style={{width:70,border:`1.5px solid ${!code&&C.err||C.border}`,borderRadius:7,padding:"7px 8px",fontSize:12,outline:"none",fontFamily:"monospace",fontWeight:700,textAlign:"center"}}/>
+              {!code&&<span style={{position:"absolute",top:-6,right:2,fontSize:9,color:C.err,background:"#fff",padding:"0 2px",fontWeight:700}}>req.</span>}
+            </div>
           </div>
           <div style={{display:"flex",gap:3,marginBottom:9,flexWrap:"wrap"}}>{CAT_COLS.map(c=><button key={c} onClick={()=>setColor(c)} style={{width:19,height:19,borderRadius:"50%",background:c,border:color===c?"3px solid #111":"1px solid transparent",cursor:"pointer"}}/>)}</div>
-          <button onClick={async()=>{ if(!name.trim()||!code.trim())return; await onSave({name:name.trim(),code,color}); setName("");setCode(""); }} style={{background:C.p,color:"#fff",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:"pointer"}}>+ Add</button>
+          <button onClick={async()=>{ if(!name.trim()||!code.trim())return; await onSave({name:name.trim(),code,color}); setName("");setCode(""); }} style={{background:name&&code?C.p:"#cbd5e1",color:"#fff",border:"none",borderRadius:7,padding:"7px 14px",fontSize:12,fontWeight:600,cursor:name&&code?"pointer":"not-allowed"}}>+ Add</button>
         </div>
       </div>
     </div>
@@ -890,7 +933,7 @@ export default function App() {
   const [showCatModal,setShowCatModal]=useState(false);
   const [showShare,setShowShare]=useState(false);
   const [view,setView]=useState("dashboard");
-  const [filter,setFilter]=useState("all");
+  const [filter,setFilter]=useState("active");
   const [catFilter,setCatFilter]=useState("all");
   const [customCatFilter,setCustomCatFilter]=useState("all");
   const [tagFilter,setTagFilter]=useState(null);
@@ -997,7 +1040,7 @@ export default function App() {
           onCreateCategory={saveCategory} onCreateTag={createTag}
           onChangeStatus={changeStatus} session={session}/>
       )}
-      {showCatModal&&<CategoryModal categories={categories} onSave={saveCategory} onDelete={deleteCategory} onClose={()=>setShowCatModal(false)}/>}
+      {showCatModal&&<CategoryModal categories={categories} tasks={myTasks} onSave={saveCategory} onDelete={deleteCategory} onClose={()=>setShowCatModal(false)}/>}
       {showShare&&<ShareModal tasks={myTasks} categories={categories} onClose={()=>setShowShare(false)}/>}
 
       {!mob&&<Sidebar view={view} setView={setView} categories={categories} session={session} counts={counts} customCatFilter={customCatFilter} setCustomCatFilter={setCustomCatFilter} onNewTask={()=>openEdit(null)} onShare={()=>setShowShare(true)} onCatModal={()=>setShowCatModal(true)}/>}
@@ -1050,7 +1093,11 @@ export default function App() {
             {loading?<div style={{textAlign:"center",padding:"48px 0",color:C.hi}}>Loading…</div>
               :visible.length===0?<div style={{textAlign:"center",padding:"48px 0",color:C.hi}}><div style={{fontSize:32,marginBottom:8}}>✅</div><p style={{margin:0,fontSize:13}}>No tasks</p></div>
               :<div style={{display:"flex",flexDirection:"column",gap:6}}>{visible.map(t=><TaskCard key={t.id} t={t} categories={categories} customTags={customTags} onEdit={openEdit} onChangeStatus={changeStatus}/>)}</div>}
-            {counts.done>0&&filter!=="done"&&<button onClick={async()=>{const ids=myTasks.filter(t=>t.done).map(t=>t.id);setTasks(p=>p.filter(t=>!t.done));await supabase.from("tasks").delete().in("id",ids);}} style={{marginTop:10,border:"none",background:"none",color:C.hi,fontSize:11,cursor:"pointer",display:"block",width:"100%",textAlign:"center",padding:6}}>Remove {counts.done} completed task{counts.done>1?"s":""}</button>}
+            {counts.done>0&&<div style={{marginTop:10,display:"flex",justifyContent:"center"}}>
+              <button onClick={()=>setFilter(f=>f==="done"?"active":"done")} style={{border:`1px solid ${filter==="done"?C.ok:C.border}`,background:filter==="done"?C.ok+"15":"#fff",color:filter==="done"?C.ok:C.hi,borderRadius:99,padding:"5px 14px",fontSize:11,cursor:"pointer",fontWeight:filter==="done"?600:400}}>
+                {filter==="done"?`▲ Hide ${counts.done} completed`:`▼ Show ${counts.done} completed`}
+              </button>
+            </div>}
           </>}
 
           {view==="sprint"&&<>

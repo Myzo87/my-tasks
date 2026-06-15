@@ -302,8 +302,7 @@ function TaskForm({task,tasks,profiles,categories,customTags,onSave,onClose,onCr
     if(!form.customCategoryId){setErr("Please select or create a category.");return;}
     setErr(""); setSaving(true);
     try { await onSave(form,task?.id); }
-    catch(e){ setErr("Save error: "+e.message); }
-    finally { setSaving(false); }
+    catch(e){ setErr("Save failed: "+(e?.message||"unknown error")); setSaving(false); }
   };
 
   const IS={
@@ -1041,7 +1040,7 @@ export default function App() {
     const updates={status:newStatus,done:newStatus==="done",closed_at:newStatus==="done"?new Date().toISOString():null};
     setTasks(p=>p.map(t=>t.id===taskId?{...t,...updates,closedAt:updates.closed_at}:t));
     await supabase.from("tasks").update(updates).eq("id",taskId);
-    await supabase.from("task_comments").insert({task_id:taskId,user_id:session.user.id,content:`Status → "${STATUSES[newStatus]?.label}"`,is_log:true}).catch(()=>{});
+    try { await supabase.from("task_comments").insert({task_id:taskId,user_id:session.user.id,content:`Status → "${STATUSES[newStatus]?.label}"`,is_log:true}); } catch(_){}
   };
 
   const saveCategory=async data=>{ const {data:d}=await supabase.from("custom_categories").insert(data).select().single(); await loadData(); return d; };
@@ -1063,17 +1062,26 @@ export default function App() {
       custom_category_id:form.customCategoryId?parseInt(form.customCategoryId):null,
       task_code, created_by:session.user.id,
     };
-    let taskId=existingId;
-    if(existingId){const{error}=await supabase.from("tasks").update(db).eq("id",existingId);if(error){showToast("Error: "+error.message,"error");return;}}
-    else{const{data,error}=await supabase.from("tasks").insert(db).select().single();if(error){showToast("Error: "+error.message,"error");return;}taskId=data.id;
-      await supabase.from("task_comments").insert({task_id:taskId,user_id:session.user.id,content:"Task created",is_log:true}).catch(()=>{});
+    try {
+      let taskId=existingId;
+      if(existingId){
+        const{error}=await supabase.from("tasks").update(db).eq("id",existingId);
+        if(error) throw new Error(error.message);
+      } else {
+        const{data,error}=await supabase.from("tasks").insert(db).select().single();
+        if(error) throw new Error(error.message);
+        taskId=data.id;
+        try { await supabase.from("task_comments").insert({task_id:taskId,user_id:session.user.id,content:"Task created",is_log:true}); } catch(_){}
+      }
+      await supabase.from("task_assignees").delete().eq("task_id",taskId);
+      if(form.assignees.length) await supabase.from("task_assignees").insert(form.assignees.map(uid=>({task_id:taskId,user_id:uid})));
+      await supabase.from("task_dependencies").delete().eq("task_id",taskId);
+      if(form.deps.length) await supabase.from("task_dependencies").insert(form.deps.map(did=>({task_id:taskId,depends_on:did})));
+      await loadData(); setShowForm(false); setEditTask(null);
+      showToast(existingId?"Task updated ✓":"Task created ✓");
+    } catch(e) {
+      showToast("Error: "+(e?.message||"unknown"), "error");
     }
-    await supabase.from("task_assignees").delete().eq("task_id",taskId);
-    if(form.assignees.length) await supabase.from("task_assignees").insert(form.assignees.map(uid=>({task_id:taskId,user_id:uid})));
-    await supabase.from("task_dependencies").delete().eq("task_id",taskId);
-    if(form.deps.length) await supabase.from("task_dependencies").insert(form.deps.map(did=>({task_id:taskId,depends_on:did})));
-    await loadData(); setShowForm(false); setEditTask(null);
-    showToast(existingId?"Task updated ✓":"Task created ✓");
   };
 
   const deleteTask=async id=>{ setTasks(p=>p.filter(t=>t.id!==id)); await supabase.from("tasks").delete().eq("id",id); };
@@ -1113,18 +1121,11 @@ export default function App() {
       {!mob&&<Sidebar view={view} setView={setView} categories={categories} session={session} counts={counts} customCatFilter={customCatFilter} setCustomCatFilter={setCustomCatFilter} onNewTask={()=>openEdit(null)} onShare={()=>setShowShare(true)} onCatModal={()=>setShowCatModal(true)}/>}
 
       <div style={{flex:1,minWidth:0,display:"flex",flexDirection:"column",paddingBottom:mob?68:0}}>
-        {mob&&<div style={{background:C.sidebar,padding:"10px 12px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50,gap:6}}>
-          <span style={{fontSize:13,fontWeight:700,color:"#fff",flexShrink:0}}>📋</span>
-          <div style={{display:"flex",gap:4,overflowX:"auto",flex:1,justifyContent:"center"}}>
-            {[["dashboard","📊"],["list","📋"],["sprint","🏃"],["gantt","🗂️"],["calendar","📅"],["admin","🗄️"]].map(([v,ic])=>(
-              <button key={v} onClick={()=>setView(v)} style={{border:"none",background:view===v?"rgba(255,255,255,.22)":"rgba(255,255,255,.08)",borderRadius:7,padding:"6px 10px",cursor:"pointer",fontSize:16,color:view===v?"#fff":"rgba(255,255,255,.55)",flexShrink:0}}>
-                {ic}
-              </button>
-            ))}
-          </div>
-          <div style={{display:"flex",gap:4,flexShrink:0}}>
-            <button onClick={()=>setShowShare(true)} style={{border:"none",background:"rgba(255,255,255,.08)",borderRadius:7,padding:"6px 8px",cursor:"pointer",fontSize:13,color:"#fff"}}>🚀</button>
-            <button onClick={()=>openEdit(null)} style={{background:C.p,color:"#fff",border:"none",borderRadius:7,padding:"6px 12px",fontSize:14,fontWeight:700,cursor:"pointer"}}>＋</button>
+        {mob&&<div style={{background:C.sidebar,padding:"11px 14px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:50}}>
+          <span style={{fontSize:14,fontWeight:700,color:"#fff"}}>📋 {VIEWS.find(v=>v[0]===view)?.[2]||"My Tasks"}</span>
+          <div style={{display:"flex",gap:5}}>
+            <button onClick={()=>setShowShare(true)} style={{border:"none",background:"rgba(255,255,255,.1)",borderRadius:6,padding:"5px 8px",cursor:"pointer",fontSize:13,color:"#fff"}}>🚀</button>
+            <button onClick={()=>openEdit(null)} style={{background:C.p,color:"#fff",border:"none",borderRadius:6,padding:"5px 11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>+</button>
           </div>
         </div>}
 
@@ -1194,14 +1195,14 @@ export default function App() {
       </div>
 
       {mob&&<div style={{position:"fixed",bottom:0,left:0,right:0,background:C.sidebar,display:"flex",zIndex:100,borderTop:"1px solid rgba(255,255,255,.08)"}}>
-        {[["dashboard","📊","Dash"],["list","📋","Tasks"],["sprint","🏃","Sprint"],["gantt","🗂️","Gantt"]].map(([v,ic,l])=>(
-          <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"9px 0 12px",border:"none",background:view===v?"rgba(255,255,255,.12)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.4)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-            <span style={{fontSize:18}}>{ic}</span>
+        {VIEWS.map(([v,ic,l])=>(
+          <button key={v} onClick={()=>setView(v)} style={{flex:1,padding:"8px 0 11px",border:"none",background:view===v?"rgba(255,255,255,.12)":"transparent",color:view===v?"#fff":"rgba(255,255,255,.4)",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+            <span style={{fontSize:17}}>{ic}</span>
             <span style={{fontSize:8,fontWeight:view===v?600:400,textTransform:"uppercase",letterSpacing:.3}}>{l}</span>
           </button>
         ))}
-        <button onClick={()=>openEdit(null)} style={{flex:1,padding:"9px 0 12px",border:"none",background:"transparent",color:C.p,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
-          <span style={{fontSize:22,fontWeight:700,lineHeight:1}}>＋</span>
+        <button onClick={()=>openEdit(null)} style={{flex:1,padding:"8px 0 11px",border:"none",background:"transparent",color:C.p,cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:1}}>
+          <span style={{fontSize:20,fontWeight:700,lineHeight:1}}>＋</span>
           <span style={{fontSize:8,fontWeight:600,textTransform:"uppercase",letterSpacing:.3}}>New</span>
         </button>
       </div>}

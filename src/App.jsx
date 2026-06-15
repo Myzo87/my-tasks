@@ -23,6 +23,7 @@ const STATUSES = {
   in_review:   {label:"In review",    color:"#8b5cf6", bg:"#f5f3ff", icon:"◔"},
   blocked:     {label:"Blocked",      color:"#f59e0b", bg:"#fffbeb", icon:"⊘"},
   done:        {label:"Done",         color:"#10b981", bg:"#f0fdf4", icon:"●"},
+  abandoned:   {label:"Abandoned",    color:"#6b7280", bg:"#f3f4f6", icon:"✕"},
 };
 const TAG_PAL   = ["#6366f1","#ec4899","#10b981","#f59e0b","#3b82f6","#8b5cf6","#ef4444","#06b6d4","#84cc16","#f97316"];
 const CAT_COLS  = [...TAG_PAL];
@@ -519,23 +520,27 @@ function SprintView({ tasks, categories, customTags, onEdit, onChangeStatus }) {
   const getC=name=>{ const ct=customTags.find(t=>t.name===name); return ct?ct.color:autoTagC(name); };
   const filtered=tasks
     .filter(t=>sprintCat==="all"||String(t.customCategoryId||"none")===sprintCat)
-    .filter(t=>showDone||t.status!=="done");
+    .filter(t=>showDone||(t.status||"not_started")!=="done");
+  const catOptions=[["all","All",null],...categories.map(c=>[String(c.id),c.code+" "+c.name,c.color]),["none","No cat",null]];
   return (
     <div>
-      {/* Category filter + done toggle */}
-      <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:14,flexWrap:"wrap"}}>
+      <div style={{display:"flex",alignItems:"center",gap:5,marginBottom:14,flexWrap:"wrap"}}>
         <span style={{fontSize:11,fontWeight:600,color:C.hi}}>📁</span>
-        {[["all","All"],...categories.map(c=>[String(c.id),c.code+" — "+c.name,c.color]),["none","No category"]].map(([v,l,col])=>{
+        {catOptions.map(([v,l,col])=>{
           const active=sprintCat===v;
-          return <button key={v} onClick={()=>setSprintCat(active?"all":v)}
-            style={{border:`1px solid ${active?(col||C.p):C.border}`,background:active?(col||C.p)+"22":"#fff",color:active?(col||C.p):C.mu,borderRadius:99,padding:"4px 11px",fontSize:11,fontWeight:active?700:400,cursor:"pointer"}}>{l}</button>;
+          return (
+            <button key={v} onClick={()=>setSprintCat(active?"all":v)}
+              style={{border:`1px solid ${active?(col||C.p):C.border}`,background:active?(col||C.p)+"22":"#fff",color:active?(col||C.p):C.mu,borderRadius:99,padding:"4px 10px",fontSize:11,fontWeight:active?700:400,cursor:"pointer"}}>
+              {l}
+            </button>
+          );
         })}
         <button onClick={()=>setShowDone(s=>!s)}
-          style={{marginLeft:"auto",border:`1px solid ${showDone?C.ok:C.border}`,background:showDone?C.ok+"18":"#fff",color:showDone?C.ok:C.mu,borderRadius:99,padding:"4px 11px",fontSize:11,fontWeight:showDone?600:400,cursor:"pointer"}}>
-          {showDone?"✓ Showing done":"○ Hide done"}
+          style={{marginLeft:"auto",border:`1px solid ${showDone?C.ok:C.border}`,background:showDone?C.ok+"18":"#fff",color:showDone?C.ok:C.mu,borderRadius:99,padding:"4px 10px",fontSize:11,fontWeight:showDone?600:400,cursor:"pointer"}}>
+          {showDone?"✓ Showing done":"Show done"}
         </button>
       </div>
-    <div style={{overflowX:"auto",paddingBottom:8}}>
+      <div style={{overflowX:"auto",paddingBottom:8}}>
       <div style={{display:"flex",gap:10,minWidth:mob?"800px":"auto"}}>
         {Object.entries(STATUSES).map(([key,st])=>{
           const col=filtered.filter(t=>(t.status||"not_started")===key);
@@ -567,6 +572,7 @@ function SprintView({ tasks, categories, customTags, onEdit, onChangeStatus }) {
             </div>
           );
         })}
+      </div>
       </div>
     </div>
   );
@@ -801,7 +807,6 @@ function ShareModal({tasks,categories,onClose}) {
         </div>
       </div>
     </div>
-    </div>
   );
 }
 
@@ -919,6 +924,66 @@ function LoginScreen() {
   );
 }
 
+// ── Admin View ────────────────────────────────────────────────
+function AdminView({ abandonedTasks, allTasks, categories, customTags, onEdit, onChangeStatus }) {
+  const mob=useIsMobile();
+  const getC=name=>{ const ct=customTags.find(t=>t.name===name); return ct?ct.color:autoTagC(name); };
+  const byCategory=categories.map(c=>({...c,count:abandonedTasks.filter(t=>t.customCategoryId==c.id).length})).filter(c=>c.count>0);
+  const totalRate=allTasks.length?Math.round(abandonedTasks.length/allTasks.length*100):0;
+  return (
+    <div>
+      <div style={{marginBottom:20}}>
+        <h1 style={{margin:0,fontSize:mob?16:18,fontWeight:700,color:C.tx}}>🗄️ Administration</h1>
+        <p style={{margin:"3px 0 0",fontSize:12,color:C.mu}}>Abandoned tasks — hidden from all other views</p>
+      </div>
+      {/* Stats */}
+      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(120px,1fr))",gap:9,marginBottom:16}}>
+        <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"13px 14px"}}>
+          <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><div style={{width:32,height:32,borderRadius:8,background:"#6b728018",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16}}>✕</div><span style={{fontSize:24,fontWeight:700,color:"#6b7280"}}>{abandonedTasks.length}</span></div>
+          <div style={{fontSize:11,fontWeight:600,color:C.tx}}>Abandoned</div><div style={{fontSize:10,color:C.hi,marginTop:1}}>{totalRate}% of all tasks</div>
+        </div>
+        {byCategory.map(c=>(
+          <div key={c.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:"13px 14px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:7}}><span style={{fontFamily:"monospace",fontSize:12,fontWeight:700,color:c.color,background:c.color+"18",borderRadius:5,padding:"2px 7px",alignSelf:"center"}}>{c.code}</span><span style={{fontSize:24,fontWeight:700,color:c.color}}>{c.count}</span></div>
+            <div style={{fontSize:11,fontWeight:600,color:C.tx}}>{c.name}</div>
+          </div>
+        ))}
+      </div>
+      {/* Task list */}
+      {abandonedTasks.length===0
+        ?<div style={{textAlign:"center",padding:"60px 0",color:C.hi}}><div style={{fontSize:36,marginBottom:8}}>✅</div><p style={{margin:0,fontSize:13}}>No abandoned tasks</p></div>
+        :<div style={{display:"flex",flexDirection:"column",gap:7}}>
+          {abandonedTasks.map(t=>{
+            const cat=categories.find(c=>c.id==t.customCategoryId);
+            const p=PRIORITIES[t.priority]||PRIORITIES.medium;
+            return(
+              <div key={t.id} style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:10,padding:mob?"11px 13px":"12px 16px",display:"flex",alignItems:"center",gap:10,borderLeft:"4px solid #9ca3af",opacity:.8}}>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{display:"flex",alignItems:"center",gap:5,flexWrap:"wrap",marginBottom:3}}>
+                    {t.taskCode&&cat&&<span style={{fontSize:9,fontWeight:700,color:cat.color,fontFamily:"monospace",background:cat.color+"18",borderRadius:4,padding:"1px 5px",flexShrink:0}}>{t.taskCode}</span>}
+                    <span style={{fontSize:mob?13:14,fontWeight:600,color:"#6b7280",textDecoration:"line-through",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{t.title}</span>
+                    <span style={{fontSize:10,padding:"1px 6px",borderRadius:99,background:p.bg,color:p.color,fontWeight:600,flexShrink:0}}>{p.label}</span>
+                  </div>
+                  <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
+                    {cat&&<span style={{fontSize:10,color:C.hi}}>[{cat.code}] {cat.name}</span>}
+                    {t.closedAt&&<span style={{fontSize:10,color:C.hi}}>· Abandoned {fmtFull(t.closedAt)}</span>}
+                    {(t.tags||[]).slice(0,2).map(tag=>{const c=getC(tag);return<span key={tag} style={{fontSize:9,background:c,color:"#fff",borderRadius:99,padding:"1px 5px",fontWeight:600}}>#{tag}</span>;})}
+                  </div>
+                </div>
+                <div style={{display:"flex",gap:5,flexShrink:0}}>
+                  <button onClick={()=>onEdit(t)} style={{border:`1px solid ${C.border}`,background:"#fff",borderRadius:7,padding:"5px 8px",cursor:"pointer",fontSize:12,color:C.mu}}>✏️</button>
+                  <button onClick={()=>onChangeStatus(t.id,"not_started")}
+                    style={{border:`1px solid ${C.p}`,background:C.pL,color:C.p,borderRadius:7,padding:"5px 12px",fontSize:12,fontWeight:600,cursor:"pointer",whiteSpace:"nowrap"}}>↩ Reopen</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      }
+    </div>
+  );
+}
+
 // ── App ───────────────────────────────────────────────────────
 export default function App() {
   const mob=useIsMobile();
@@ -1015,18 +1080,17 @@ export default function App() {
 
   // ── Filter tasks by visibility (creator or assignee) ──
   const myTasks=tasks.filter(t=>
-    !t.assignees?.length ||           // no assignees = visible to all
-    !t.createdBy ||                   // legacy tasks without creator
-    t.createdBy===session.user.id ||  // I created it
-    (t.assignees||[]).some(a=>a.id===session.user.id) // I'm assigned
+    !t.assignees?.length||!t.createdBy||t.createdBy===session.user.id||(t.assignees||[]).some(a=>a.id===session.user.id)
   );
+  const activeTasks=myTasks.filter(t=>(t.status||"not_started")!=="abandoned");
+  const abandonedTasks=myTasks.filter(t=>(t.status||"not_started")==="abandoned");
 
-  const allTags=[...new Set(myTasks.flatMap(t=>t.tags||[]))];
+  const allTags=[...new Set(activeTasks.flatMap(t=>t.tags||[]))];
   const getTagColor=name=>{ const ct=customTags.find(t=>t.name===name); return ct?ct.color:autoTagC(name); };
-  const sortFn=(a,b)=>{ if(a.done!==b.done)return a.done?1:-1; if(sortBy==="priority")return PO[a.priority]-PO[b.priority]; if(sortBy==="status"){const so={not_started:0,in_progress:1,in_review:2,blocked:3,done:4};return so[a.status||"not_started"]-so[b.status||"not_started"];} if(sortBy==="added_desc")return new Date(b.createdAt)-new Date(a.createdAt); if(sortBy==="added_asc")return new Date(a.createdAt)-new Date(b.createdAt); if(sortBy==="due_asc"){if(!a.due&&!b.due)return 0;if(!a.due)return 1;if(!b.due)return -1;return new Date(a.due)-new Date(b.due);} if(sortBy==="alpha")return a.title.localeCompare(b.title); return 0; };
-  const visible=myTasks.filter(t=>{ if(filter==="active"&&t.done)return false; if(filter==="done"&&!t.done)return false; if(catFilter!=="all"&&t.cat!==catFilter)return false; if(customCatFilter!=="all"&&String(t.customCategoryId||"none")!==customCatFilter)return false; if(tagFilter&&!(t.tags||[]).includes(tagFilter))return false; return true; }).sort(sortFn);
-  const counts={total:myTasks.length,done:myTasks.filter(t=>t.done).length,urgent:myTasks.filter(t=>t.priority==="high"&&!t.done).length};
-  const VIEWS=[["dashboard","📊","Dashboard"],["list","📋","Tasks"],["sprint","🏃","Sprint"],["calendar","📅","Calendar"],["gantt","🗂️","Gantt"]];
+  const sortFn=(a,b)=>{ if(a.done!==b.done)return a.done?1:-1; if(sortBy==="priority")return PO[a.priority]-PO[b.priority]; if(sortBy==="status"){const so={not_started:0,in_progress:1,in_review:2,blocked:3,done:4,abandoned:5};return so[a.status||"not_started"]-so[b.status||"not_started"];} if(sortBy==="added_desc")return new Date(b.createdAt)-new Date(a.createdAt); if(sortBy==="added_asc")return new Date(a.createdAt)-new Date(b.createdAt); if(sortBy==="due_asc"){if(!a.due&&!b.due)return 0;if(!a.due)return 1;if(!b.due)return -1;return new Date(a.due)-new Date(b.due);} if(sortBy==="alpha")return a.title.localeCompare(b.title); return 0; };
+  const visible=activeTasks.filter(t=>{ if(filter==="active"&&t.done)return false; if(filter==="done"&&!t.done)return false; if(catFilter!=="all"&&t.cat!==catFilter)return false; if(customCatFilter!=="all"&&String(t.customCategoryId||"none")!==customCatFilter)return false; if(tagFilter&&!(t.tags||[]).includes(tagFilter))return false; return true; }).sort(sortFn);
+  const counts={total:activeTasks.length,done:activeTasks.filter(t=>t.done).length,urgent:activeTasks.filter(t=>t.priority==="high"&&!t.done).length};
+  const VIEWS=[["dashboard","📊","Dashboard"],["list","📋","Tasks"],["sprint","🏃","Sprint"],["calendar","📅","Calendar"],["gantt","🗂️","Gantt"],["admin","🗄️","Admin"]];
 
   const openEdit=t=>{ setEditTask(t||null); setShowForm(true); };
 
@@ -1056,7 +1120,7 @@ export default function App() {
 
         <div style={{flex:1,padding:mob?"11px":"22px 26px",maxWidth:880,width:"100%",margin:"0 auto",boxSizing:"border-box"}}>
 
-          {view==="dashboard"&&<Dashboard tasks={myTasks} categories={categories} onEdit={openEdit} onNewTask={()=>openEdit(null)}/>}
+          {view==="dashboard"&&<Dashboard tasks={activeTasks} categories={categories} onEdit={openEdit} onNewTask={()=>openEdit(null)}/>}
 
           {view==="list"&&<>
             <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:12}}>
@@ -1102,18 +1166,20 @@ export default function App() {
 
           {view==="sprint"&&<>
             <h1 style={{margin:"0 0 14px",fontSize:mob?16:18,fontWeight:700,color:C.tx}}>Sprint Board</h1>
-            <SprintView tasks={myTasks} categories={categories} customTags={customTags} onEdit={openEdit} onChangeStatus={changeStatus}/>
+            <SprintView tasks={activeTasks} categories={categories} customTags={customTags} onEdit={openEdit} onChangeStatus={changeStatus}/>
           </>}
 
           {view==="calendar"&&<>
             <h1 style={{margin:"0 0 14px",fontSize:mob?16:18,fontWeight:700,color:C.tx}}>Calendar</h1>
-            <CalendarView tasks={myTasks} categories={categories} customTags={customTags} onEdit={openEdit}/>
+            <CalendarView tasks={activeTasks} categories={categories} customTags={customTags} onEdit={openEdit}/>
           </>}
 
           {view==="gantt"&&<>
             <h1 style={{margin:"0 0 14px",fontSize:mob?16:18,fontWeight:700,color:C.tx}}>Gantt Timeline</h1>
-            <GanttView tasks={myTasks} categories={categories} onEdit={openEdit}/>
+            <GanttView tasks={activeTasks} categories={categories} onEdit={openEdit}/>
           </>}
+
+          {view==="admin"&&<AdminView abandonedTasks={abandonedTasks} allTasks={myTasks} categories={categories} customTags={customTags} onEdit={openEdit} onChangeStatus={changeStatus}/>}
         </div>
       </div>
 
